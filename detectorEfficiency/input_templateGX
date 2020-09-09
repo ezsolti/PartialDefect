@@ -1,0 +1,53 @@
+%https://link.springer.com/article/10.1007/s41605-018-0074-y
+
+set acelib "/usr/local/SERPENT/jeff31.xsdata" "/home/conroy/md7/zomba" 
+set pdatadir "/home/conroy/md7" 
+set declib "/home/vikra710/serpent/data/JEFF/JEFF33-rdd_all.asc" 
+ 
+mat hpge -5.323        
+32000.05p -1 
+ 
+mat alluminum -2.700   
+13000.05p -1  
+ 
+mat air  -0.0013  
+7000.05p  -0.78   
+8000.05p  -0.21   
+18000.05p -0.01   
+ 
+mat steel -8.0 rgb 0 255 0  
+6012.06c -17.86 
+24052.06c -16.86 
+25055.06c -1.76 
+28058.06c -11.28 
+42098.06c -2.03 
+26056.06c -49.596
+  
+surf Alluminum_Top       cyly 0 0 3.675 0.0 6.75 
+surf Alluminum_Bottom    cyly 0 0 3.525 0.0 6.6 
+surf Dead_HPGe_Top       cyly 0 0 3.025 0.0 6.1
+surf Dead_HPGe_Bottom    cyly 0 0 3.021 0.0 6.096
+surf HPGe_Bottom         cyly 0 0 0.6  0.0 5.1 
+surf Universe            sph  0 0 0     10  
+surf Source              sph 0 8.75 0.3 0.5
+cell Cold_finger  0  void -HPGe_Bottom 
+cell HPGe_detector 0  hpge -Dead_HPGe_Bottom HPGe_Bottom 
+cell dead_layer 0 hpge -Dead_HPGe_Top Dead_HPGe_Bottom  
+cell Al_inside 0 air -Alluminum_Bottom Dead_HPGe_Top  
+cell Al_cap 0 alluminum -Alluminum_Top Alluminum_Bottom 
+cell lab 0 air -Universe Alluminum_Top 
+%cell source 0 air -Source  %just for plotting
+cell out 0 outside Universe  
+ 
+ene energy_step 2 4096 0.0 2 
+ 
+set nps 1000000 1  
+ 
+det HPGe dc HPGe_detector de energy_step dr -27 hpge 
+ 
+src point1 g sp 0 8.75 1 sd 0 -1 0 se EnStr 
+
+
+%plot 1 400 400 0 -10 10
+%plot 2 400 400 % 0 0 10
+%plot 3 400 400 0 -10 10
