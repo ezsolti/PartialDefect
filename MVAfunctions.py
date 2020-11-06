@@ -4,6 +4,8 @@
 Helper functions and variables for the MVA analysis
 
 In case some other isotopes are of interest, the isotopes variable can be extended.
+
+zs. elter 2020
 """
 
 import numpy as np
@@ -31,21 +33,22 @@ isotopes={'Cs134': {'hl':2.065*365,
               
 
 def AssemblyMap(deftype):
-    """This function always gives back a 30% defect -80 rods missing-, however
-    based on the type this may be done at different locations
-    exter: pins are missing on the pheriphery
-    inter: pins are missing distributed in the center
-    center: pins are missing in the center
-    corner: pins are missing in one corner"""
+    """Function to produce a 17x17 assembly map with partial defects in it.
+    '1' represents fuel, '2' represent control rod guide, and '3' represents dummy rods.
     
-    #universe numbers:
-    #1: Fuel
-    #2: Dummy
-    #4: CR Insert
-    #6: CR Guide
+    Parameters
+    ----------
+    deftype : str
+       String variable to describe the assembly map (it takes values 'A', 'B', etc) 
+    
+    Returns
+    -------
+    mapArray : list of lists
+        A list of list to represent a matrix describing the rod types in the assembly.
+    """
+    
     import random
     import math
-    #ND=int(math.ceil((17*17-25)*(perc/100.0))) #number of dummies int() is needed for python2
     SubAsStr=''
     CrPos=[40,43,46,55,65,88,91,94,97,100,139,142,145,148,151,190,193,196,199,202,225,235,244,247,250]
     FuelPos=[]
@@ -121,6 +124,19 @@ def AssemblyMap(deftype):
 
 
 def detectorEff(E):
+    """Function to describe the detector efficiency. It is based on a fit of 
+    Serpent2 results.
+    
+    Parameters
+    ----------
+    E : float or list
+        Energy in MeV
+    
+    Returns
+    -------
+    Eps : float or list
+        Detector efficiency at energy/energies E
+    """
     E=E*1000 #change MeV to keV
     a=-8.02741343e-02
     b=-1.49151904e-01
@@ -152,6 +168,8 @@ def gammaLines(row,nuclides=['Cs137','Cs134','Eu154']):
     lines : dict
         nested dictionary to store the gamma line intensities. outer keys are nuclide identifiers,
         inner keys are 'energies' and 'strength'. 
+    energies : numpy array
+        List of gamma line energies.
     """
     d2s=86400
     
@@ -166,7 +184,6 @@ def gammaLines(row,nuclides=['Cs137','Cs134','Eu154']):
             lines[iso]['strength'].append(enfreq)
     
     energies=[]
-    #TODO DONT DO HERE!
     for key in nuclides:
         for en in isotopes[key]['energies']:
             energies.append(key+': '+str(en))
@@ -174,10 +191,43 @@ def gammaLines(row,nuclides=['Cs137','Cs134','Eu154']):
     return lines,energies
 
 
-def prepareX(fuellib=None, cases=['O','R'],nuclides=['Cs137','Cs134','Eu154'],scaling=True,normalization=True,
+def prepareX(fuellib=None, cases=['O','R'],nuclides=['Cs137','Cs134','Eu154'],ratio=False,scaling=True,normalization=True,
              encoding={'O':0,'R':1},gefffilestem='outs/geomEff_',fresh=False):
     """
     Function to create the X matrix, which has the feature vectors as its rows.
+    This is not a very straightforward function, it is just to wrap up some data 
+    management.
+    
+    Parameters
+    ----------
+    fuellib : pandas dataframe
+        Fuel library. For further details see https://doi.org/10.1016/j.dib.2020.106429
+    cases : list of strings
+        The assembly types in the analysis. It is important that the geometric efficiency files
+        include these strings in it.
+    ratio : bool
+        if True the pairwise ratios of the features are returned.
+    scaling : bool
+        if True standard scaling is performed on the data
+    normalization : bool
+        if True, the feature vectors are normalized to sum to 1
+    encoding : dictionary
+        For classification numeric labels are preferred, thuse the cases need to be ecoded.
+        Here one can also make sure whether several cases should be encoded into only 2 classes.
+    gefffilestem : str
+        The path and filename stem of the geometric efficiency curves. This will be 
+        extended with the string describing the case.
+    fresh : bool
+        If True, always the geometric efficiency of fresh fuel is used.
+        
+    Returns
+    -------
+    data : numpy array
+        The data matrix. If the ratios are requested, then the matrix of the ratios
+    labels : numpy array
+        Encoded labels for all samples
+    energies : numpy array
+        Array of energies or energie ratios to identify the columns of the data matrix
     """
     if fuellib is None:
         raise TypeError('No fuel library is added.')
@@ -186,6 +236,7 @@ def prepareX(fuellib=None, cases=['O','R'],nuclides=['Cs137','Cs134','Eu154'],sc
         colN=colN+len(isotopes[nucl]['energies'])
     
     data=np.empty((0,colN))
+    dataratio=np.empty((0,int((colN**2-colN)/2)))
     labels=[]    
     
     
@@ -209,29 +260,62 @@ def prepareX(fuellib=None, cases=['O','R'],nuclides=['Cs137','Cs134','Eu154'],sc
             for nucl in nuclides:
                 for strength in peaks[nucl]['strength']:
                     feature.append(strength)
+            feature=np.array(feature)
             
+            featureratio=[]
+            energiesratio=[]
+            for i,(fi,ei) in enumerate(zip(feature,energies)):
+                for j,(fj,ej) in enumerate(zip(feature,energies)):
+                    if j>i:
+                        if fi/fj >= fj/fi:
+                            featureratio.append(fi/fj)
+                        else:
+                            featureratio.append(fj/fi)
+                        energiesratio.append(ei+' / '+ej)
+            featureratio=np.array(featureratio)
+
             if normalization:
                 feature=feature/sum(feature)
+                featureratio=featureratio/sum(featureratio)
+            
             data=np.vstack([data,feature])
+            dataratio=np.vstack([dataratio,featureratio])
             
             labels.append(encoding[c]) 
-    
+    #TODO bring normalization here, to see the impact of doing scaling first
     labels=np.array(labels)
     
     if scaling:
         data = preprocessing.scale(data)
+        dataratio = preprocessing.scale(dataratio)
     
-    return data,labels,energies
+    if ratio:
+        return dataratio,labels,np.array(energiesratio)
+    else:
+        return data,labels,energies
 
 def AtConc_to_ZWeightPer(row):
-    """the function expects a pandas row from the MVA dataset.
+    """Function to convert spent fuel inventory from nuclidewise atom concentration
+    to elementwise weight percentage. 
+    The function expects a pandas row from the MVA dataset.
     1, calculates the mass per cm3 for each isotope
     2, changes the ZAID into elements and sums the mass of each element
-    3, returns the normalized mass (ie w%) for each element"""
+    3, returns the normalized mass (ie w%) for each element
+    
+    Parameters
+    ----------
+    row : pandas dataframe
+        Row in dataframe describing the fuel inventory
+    
+    Returns
+    -------
+    masspervolume : dict
+        Dictionary which stores the mass percentage for each element (which are the keys).
+    """
     
     #precondition row into dictionary
     inventory = row.to_dict()
-    inventory.pop('Unnamed: 0')
+    inventory.pop('Unnamed: 0') #note this is highly specific
     inventory.pop('BU')
     inventory.pop('CT')
     inventory.pop('IE')
@@ -268,6 +352,19 @@ def AtConc_to_ZWeightPer(row):
 
     
 def XCOMmaterial(massdic):
+    """
+    Function to convert the mass percentages into XCOM readable input string
+    
+    Parameters
+    ----------
+    massdic : dict
+        Dictionary which stores the mass percentage for each element (which are the keys).
+    
+    Returns
+    -------
+    xcomstr : str
+        String which includes the elementwise mass percentages in an XCOM readable form.
+    """
     #printf 'spentfuel\n4\n2\nH\n0.1\nO\n0.9\n1\n3\n1\n3\n0.6\n0.8\n0.9\nN\ntestauto.out\n1\n' | ./XCOMtest
     xcomstr=''    
     for element in massdic:
@@ -275,7 +372,7 @@ def XCOMmaterial(massdic):
     return xcomstr
     
 
-
+#Variable to match element symbol to Z. not used in these functions!
 nametoZ= {'Mt': 109,
           'Hs': 108,
           'Bh': 107,
